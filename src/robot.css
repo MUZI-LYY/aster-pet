@@ -1,0 +1,53 @@
+.robot-avatar{position:absolute;top:4px;left:26px;right:26px;height:180px;pointer-events:none}
+.robot-avatar svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.robot-light,.robot-eyes{fill:var(--robot-color,#76e4f4);transition:fill .25s ease}.robot-smile{stroke:var(--robot-color,#76e4f4);transition:stroke .25s ease;transform-box:fill-box;transform-origin:center}
+.robot-float{transform-origin:120px 236px;animation:robot-float 4s ease-in-out infinite}
+.robot-eyes{transform-box:fill-box;transform-origin:center;animation:robot-blink 4.8s infinite}
+.robot-arm-left{transform-origin:66px 162px;animation:robot-arm-idle-left 4s ease-in-out infinite}
+.robot-arm-right{transform-origin:174px 162px;animation:robot-arm-idle-right 4s ease-in-out infinite}
+.robot-idle .robot-float{animation:robot-float 2.4s ease-in-out infinite}
+.robot-idle .robot-smile,.robot-working .robot-smile{transform:scaleY(1.35)}
+.robot-completed .robot-smile{transform:scaleY(1.5)}
+.robot-idle .robot-arm-right{animation:robot-greet 7.5s ease-in-out infinite}
+.robot-working .robot-light{animation:robot-pulse 2s ease-in-out infinite}
+.robot-working .robot-float{animation:robot-busy 1.2s ease-in-out infinite}
+.robot-working .robot-arm-left{animation:robot-type-left .65s ease-in-out infinite}
+.robot-working .robot-arm-right{animation:robot-work-greet 8s ease-in-out infinite}
+.robot-completed .robot-float{animation:robot-cheer 2.8s ease-in-out 1,robot-float 4s 2.8s ease-in-out infinite}
+.robot-completed .robot-arm-left{animation:robot-cheer-left 2.8s ease-in-out 1}
+.robot-completed .robot-arm-right{animation:robot-cheer-right 2.8s ease-in-out 1}
+.robot-failed .robot-float{animation:robot-shake 7s ease-in-out infinite}
+.robot-failed .robot-smile{transform:scaleY(-1)}
+.robot-approval .robot-arm-right{animation:robot-request 6s ease-in-out infinite}
+.robot-input .robot-float{animation:robot-listen 5s ease-in-out infinite}
+.robot-input .robot-arm-right{animation:none;transform:rotate(-45deg)}
+.robot-waiting .robot-arm-left{animation:none;transform:rotate(40deg)}
+.robot-waiting .robot-arm-right{animation:none;transform:rotate(-40deg)}
+.robot-waiting .robot-float{animation:robot-wait 6s ease-in-out infinite}
+.robot-interrupted .robot-eyes{transform:scaleY(.65);animation:none}
+.robot-uncertain .robot-float{animation:robot-look 7s ease-in-out infinite}
+.robot-offline .robot-float{animation:robot-float 7s ease-in-out infinite;opacity:.7}
+.robot-offline .robot-eyes{transform:scaleY(.45);animation:none}
+@keyframes robot-float{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-11px) rotate(3deg)}}
+@keyframes robot-blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
+@keyframes robot-arm-idle-left{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+@keyframes robot-arm-idle-right{0%,100%{transform:rotate(8deg)}50%{transform:rotate(-8deg)}}
+@keyframes robot-greet{0%,14%,35%,100%{transform:rotate(0)}20%,29%{transform:rotate(-90deg)}24%,32%{transform:rotate(-120deg)}}
+@keyframes robot-busy{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-6px) rotate(5deg)}}
+@keyframes robot-type-left{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(48deg)}}
+@keyframes robot-type-right{0%,100%{transform:rotate(-48deg)}50%{transform:rotate(8deg)}}
+@keyframes robot-work-greet{0%,16%,32%,48%,80%,100%{transform:rotate(-35deg)}8%,24%,40%,88%{transform:rotate(8deg)}56%,67%{transform:rotate(-100deg)}61%,72%{transform:rotate(-120deg)}}
+@keyframes robot-cheer{0%,100%{transform:translateY(0)}30%,65%{transform:translateY(-18px)}45%,80%{transform:translateY(-1px)}}
+@keyframes robot-cheer-left{0%,100%{transform:rotate(0)}35%,65%{transform:rotate(130deg)}}
+@keyframes robot-cheer-right{0%,100%{transform:rotate(0)}35%,65%{transform:rotate(-130deg)}}
+@keyframes robot-shake{0%,30%,100%{transform:rotate(0)}5%,15%,25%{transform:rotate(-8deg)}10%,20%{transform:rotate(8deg)}}
+@keyframes robot-request{0%,16%,50%,100%{transform:rotate(-80deg)}25%,40%{transform:rotate(-125deg)}32%{transform:rotate(-60deg)}}
+@keyframes robot-listen{0%,100%{transform:rotate(-9deg)}35%,60%{transform:rotate(-13deg) translateY(-6px)}}
+@keyframes robot-wait{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg) translateY(-6px)}}
+@keyframes robot-look{0%,100%{transform:rotate(9deg)}50%{transform:rotate(-9deg)}}
+@keyframes robot-pulse{0%,100%{opacity:1}50%{opacity:.7}}
+.reduced-motion .robot-avatar *{animation:none!important}
+@media(prefers-reduced-motion:reduce){.robot-avatar *{animation:none!important}}
+.robot-3d canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.robot-fallback,.robot-fallback>.robot-avatar{position:absolute;inset:0}
+.robot-3d.is-ready .robot-fallback{display:none}

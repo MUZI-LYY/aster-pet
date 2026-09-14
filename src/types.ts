@@ -1,0 +1,9 @@
+export type TaskStatus='running'|'approval'|'input'|'idle'|'waiting'|'completed'|'interrupted'|'failed'|'unknown'|'unconfirmed';
+export type Mood=keyof typeof import('../core/robot-motion.mjs').robotMoods;
+export interface TaskEvent { id?:string;label:string;text:string;kind:string;at:number }
+export interface TokenUsage { total:number;scope:'session'|'recent';input?:number;output?:number;cacheRead?:number;cacheWrite?:number }
+export interface Task { id:string;provider?:string;sourceLabel?:string;nativeId?:string;jumpTarget?:{label?:string;[key:string]:unknown};title:string;subtitle?:string;tokenUsage?:TokenUsage|null;project:string;cwd:string;model:string;status:TaskStatus;turnId:string|null;startedAt:number|null;completedAt:number|null;updatedAt:number;evidence:string;events:TaskEvent[] }
+export interface TaskAlert { id:string;turnId:string|null;status:TaskStatus;title:string }
+export interface Snapshot { alerts?:TaskAlert[];sources?:{provider:string;sourceLabel:string;connected:boolean;error:string|null;count:number}[]; tasks:Task[];connected:boolean;error:string|null;checkedAt:number;sourceLabel:string;limit:number }
+export interface Settings { openAtLogin:boolean;startupAvailable:boolean;startupStatus:string; petScale:number;name:string;notifications:boolean;alwaysOnTop:boolean;reducedMotion:boolean;completedTaskRetentionMinutes:number }
+declare global { interface Window { aster?:{snapshot:()=>Promise<Snapshot>;refresh:()=>Promise<boolean>;settings:()=>Promise<Settings>;saveSettings:(s:Partial<Settings>)=>Promise<Settings>;windowAction:(s:string)=>Promise<boolean>;onSnapshot:(cb:(s:Snapshot)=>void)=>()=>void;openTask:(id:string)=>Promise<{ok:boolean;message?:string}>;beginDrag:()=>void;drag:(delta:{x:number;y:number})=>void;onFilter:(cb:(filter:string)=>void)=>()=>void;onSettings:(cb:(settings:Settings)=>void)=>()=>void} } }
