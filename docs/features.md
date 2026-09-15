@@ -15,7 +15,7 @@
 | F09 | 3D 机器人、表情、动作、回退 | [Robot](../src/Robot.tsx)、[场景](../src/robot-scene.js)、[动作](../core/robot-motion.mjs)、[SVG](../src/RobotFallback.tsx) | 待命/工作轻快摆动与间歇招手，完成短暂欢呼；WebGL 不可用有回退；减少动作保持状态可辨；[动作测试](../tests/robot-motion.test.mjs) |
 | F10 | 桌宠尺寸、拖动、位置记忆、设置保存 | [尺寸](../core/pet-scale.mjs)、[主进程](../electron/main.mjs)、[App](../src/App.tsx) | 75%–150%、步长 5%，任务面板保持独立尺寸；首次位于右上角，自动记住位置并适配显示器变更；[位置测试](../tests/pet-position.test.mjs)、[缩放测试](../tests/pet-scale.test.mjs) |
 | F11 | 历史任务隐藏 | [可见性](../core/task-visibility.mjs)、[App](../src/App.tsx) | 3 天/7 天/30 天/始终；隐藏不是删除，进行中和待处理保留；[可见性测试](../tests/task-visibility.test.mjs) |
-| F12 | 构建、分发、隐私检查 | [打包](../scripts/package.mjs)、[检查](../scripts/check-privacy.mjs)、[开发服务](../vite.config.ts) | 项目相对路径与运行时目录；包内包含项目规则和维护文档，开发源码链接在仓库查看；不分发个人信息；[检查测试](../tests/privacy.test.mjs) |
+| F12 | 版本显示、构建、分发、隐私检查 | [打包](../scripts/package.mjs)、[检查](../scripts/check-privacy.mjs)、[开发服务](../vite.config.ts) | 设置页与应用包统一读取 `package.json` 版本；项目相对路径与运行时目录；包内包含项目规则和维护文档，开发源码链接在仓库查看；不分发个人信息；[检查测试](../tests/privacy.test.mjs) |
 
 | F13 | 开机启动 / 系统登录项 | [登录项适配](../core/login-startup.mjs)、[主进程](../electron/main.mjs)、[App](../src/App.tsx) | 默认不注册，仅在用户切换时修改 Aster 自身登录项；以系统状态为准，开发版禁用；[登录项测试](../tests/login-startup.test.mjs) |
 

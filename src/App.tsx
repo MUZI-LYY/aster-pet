@@ -1,4 +1,5 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
+import {version as appVersion} from '../package.json';
 import {ArrowUpRight,ChevronLeft,RefreshCw,Settings2,X,LoaderCircle,Check, CircleAlert,ShieldQuestion,MessageCircle,Clock3} from 'lucide-react';
 import Robot from './Robot';
 import {tokenLabel,tokenDescription} from '../core/token-usage.mjs';
@@ -65,6 +66,7 @@ export default function App(){
         <span className={`task-dot ${t.status}`}/><span className="task-content"><span className="task-top"><b>{t.title}</b><span className={`status ${t.status}`}>{labels[t.status]||'待核实'}</span></span>{t.subtitle&&<span className="task-subtitle" title={t.subtitle}>{t.subtitle}</span>}<span className="task-meta"><span className="task-source" title={`${t.sourceLabel||t.provider||'Codex'} · ${t.project}`}>{t.sourceLabel||t.provider||'Codex'} · {t.project}</span><span className={`task-tokens ${t.tokenUsage?'':'unavailable'}`} title={tokenDescription(t.tokenUsage)}>{tokenLabel(t.tokenUsage)}</span><span className="task-time">{timeAgo(t.updatedAt)}</span></span>{needsYou(t.status)&&<span className="attention-note">{t.status==='approval'?'需要你批准后才能继续':t.status==='input'?'正在等待你的回答':'需要你确认'}</span>}</span><ArrowUpRight size={13} className="jump-icon"/>
       </button>)}{!tasks.length&&<div className="empty">{snapshot.checkedAt?'暂无匹配任务':'正在读取本机任务…'}<small>{snapshot.sources?.find(s=>s.provider===provider)?.error||snapshot.error||(provider==='cli'?'使用 Aster CLI 包装命令启动任务后会显示在这里':'开始任务后会自动出现在这里')}</small></div>}</div>
       <footer><i className={snapshot.connected?'online':''}/><span>每 3 秒同步</span><span>点击任务定位</span></footer></>:<div className="settings">
+        <div className="model-setting" aria-label="应用版本"><span>当前版本</span><span>v{appVersion}</span></div>
         <label>伙伴名称<input value={settings.name} maxLength={24} onChange={e=>setSettings({...settings,name:e.target.value})} onBlur={()=>update({name:settings.name.trim()||'Aster'})}/></label>
         <div className="scale-setting">
           <div className="scale-setting-heading"><label htmlFor="pet-scale">桌宠大小</label><output htmlFor="pet-scale">{settings.petScale}%</output><button className="scale-reset" disabled={settings.petScale===100} onClick={()=>update({petScale:100})}>恢复默认</button></div>
