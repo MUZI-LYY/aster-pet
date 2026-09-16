@@ -40,15 +40,25 @@ export function parseClaudeTranscript(rows, {id,mtime,now=Date.now()} = {}) {
     updatedAt,evidence:turn?'Claude Code 最近一轮会话记录':'没有明确的本轮状态记录',events:events.slice(-5).reverse(),jumpTarget:null};
 }
 
+// `sdk-cli` transcripts are individual SDK invocations created by another
+// program, not user-owned Claude Code tasks. Keep them out of the task list.
+export function isClaudeTaskTranscript(rows) {
+  return !rows.some(row=>row?.entrypoint==='sdk-cli');
+}
+
 export function readClaudeSnapshot({home=process.env.CLAUDE_CONFIG_DIR||join(homedir(),'.claude'),now=Date.now(),limit=80,getProcessInfo=processInfo}={}) {
   const base={tasks:[],connected:false,error:null,checkedAt:now,source:'claude',sourceLabel:'Claude Code',limit};
   if(!existsSync(home))return {...base,error:'未发现 Claude Code 本机会话。'};
   const tasks=new Map();let unreadable=0;
   const projects=join(home,'projects');
   const paths=entries(projects).filter(e=>e.isDirectory()).slice(0,2000).flatMap(e=>directFiles(join(projects,e.name),'.jsonl'));
-  for(const {path,mtime} of recentFiles(paths,limit)){
+  // Inspect extra recent candidates so SDK calls cannot crowd real tasks out
+  // before filtering. Reads remain bounded by jsonLines and this candidate cap.
+  const candidateLimit=Math.min(320,Math.max(limit,limit*4));
+  for(const {path,mtime} of recentFiles(paths,candidateLimit)){
     try{
       const rows=jsonLines(path,home);if(!rows.length){unreadable++;continue;}
+      if(!isClaudeTaskTranscript(rows))continue;
       const task=parseClaudeTranscript(rows,{id:basename(path,'.jsonl'),mtime,now});
       if(!task.nativeId||rows.every(r=>r.isSidechain))continue;
       tasks.set(task.nativeId,task);
@@ -57,6 +67,7 @@ export function readClaudeSnapshot({home=process.env.CLAUDE_CONFIG_DIR||join(hom
   for(const {path,mtime} of recentFiles(directFiles(join(home,'sessions'),'.json'),limit)){
     try{
       const s=readJson(path,home);if(!s.sessionId||s.kind==='subagent')continue;
+      if(s.entrypoint==='sdk-cli')continue;
       const p=getProcessInfo(s.pid);
       // A PID alone may refer to a different process after a crash/reboot.
       const normalizeStart=value=>typeof value==='string'?value.trim().replace(/\s+/g,' '):'';

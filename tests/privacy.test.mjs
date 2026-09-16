@@ -11,5 +11,5 @@ test('privacy guard rejects personal directories and literal filesystem location
   assert.deepEqual(privacyIssues('private-fixture-account',options),['personal-identifier']);
 });
 test('runtime paths, relative examples and route identifiers are portable',()=>{
-  for(const text of ["join(homedir(), '.codex')",'node ./scripts/aster-run.mjs',"fetch('/api/tasks')",'process.execPath','app.getPath("userData")'])assert.deepEqual(privacyIssues(text,options),[]);
+  for(const text of ["join(homedir(), '.codex')",'node ./scripts/aster-run.mjs',"fetch('/api/tasks')","uri.path === '/open-session'",'process.execPath','app.getPath("userData")'])assert.deepEqual(privacyIssues(text,options),[]);
 });

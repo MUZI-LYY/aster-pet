@@ -6,7 +6,7 @@ import { listPackage, extractFile } from '@electron/asar';
 
 const root = resolve(import.meta.dirname, '..');
 const textExtensions = new Set(['.md','.mjs','.cjs','.js','.jsx','.ts','.tsx','.css','.json','.html','.py','.yml','.yaml','.toml','.txt','.map']);
-const folders = ['core','src','electron','scripts','tests','docs'];
+const folders = ['core','src','electron','scripts','tests','docs','integrations'];
 const user = userInfo().username;
 const personalNames = user.length >= 3 && !['root','runner','admin','user','node'].includes(user.toLowerCase()) ? [user.toLowerCase()] : [];
 const home = homedir().replaceAll('\\','/').toLowerCase();
@@ -22,7 +22,7 @@ export function privacyIssues(text, { names = personalNames, personalHome = home
   // are protocol identifiers rather than installation locations.
   for (const match of text.matchAll(/["'`]((?:\/(?!\/)[^"'`\n]+)|(?:[a-z]:\\[^"'`\n]+))["'`]/gi)) {
     const path = match[1];
-    if (path === '/api/tasks' || /^\/dev\/(?:ttys\d+|pts\/\d+|\$\{tty\})$/.test(path) || path.startsWith('/dev/ttys1;')) continue;
+    if (['/api/tasks','/open-session','/open-task'].includes(path) || /^\/dev\/(?:ttys\d+|pts\/\d+|\$\{tty\})$/.test(path) || path.startsWith('/dev/ttys1;')) continue;
     // Match paths, not prose in a string or a fragment of JS/regular expressions.
     if (/^\/[\w.-]+(?:\/[\w. ${}()\\-]+)*$/.test(path) || /^[a-z]:\\/i.test(path)) issues.push('fixed-filesystem-path');
   }
@@ -47,7 +47,7 @@ export function checkPrivacy({ artifacts = false } = {}) {
   const source = [...folders.flatMap(folder=>files(join(root,folder))), ...readdirSync(root,{withFileTypes:true}).filter(entry=>entry.isFile()&&textExtensions.has(extname(entry.name))).map(entry=>join(root,entry.name))];
   for (const path of source) inspect(relative(root,path),readFileSync(path,'utf8'));
   if (artifacts) {
-    for (const path of [...files(join(root,'dist')),...files(join(root,'build','app-stage'))]) inspect(relative(root,path),readFileSync(path,'utf8'));
+    for (const path of [...files(join(root,'dist')),...files(join(root,'build','app-stage')),...files(join(root,'build','kiro-bridge')),...files(join(root,'build','cursor-bridge'))]) inspect(relative(root,path),readFileSync(path,'utf8'));
     const releases = join(root,'release');
     if (existsSync(releases)) for (const entry of readdirSync(releases,{withFileTypes:true})) {
       if (!entry.isDirectory()) continue;

@@ -1,17 +1,22 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, screen, shell, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { TaskMonitor } from '../core/monitor.mjs';
 import { statusLabels, statusOrder } from '../core/task-state.mjs';
 import { openTaskTarget } from '../core/task-jump.mjs';
+import { isKiroSessionId } from '../core/kiro-session.mjs';
+import { isCursorComposerId } from '../core/cursor-session.mjs';
+import { openExistingAppTask } from '../core/app-window-jump.mjs';
+import { openKiroWindowTask } from '../core/kiro-window-bridge.mjs';
 import { normalizePetScale, scaledPetBounds, PET_WIDTH, PET_HEIGHT, petLayoutHeight } from '../core/pet-scale.mjs';
 import { normalizePetPosition, rememberPetPosition, restorePetBounds } from '../core/pet-position.mjs';
 import { readLoginStartup, setLoginStartup } from '../core/login-startup.mjs';
 import { normalizeCompletedTaskRetention } from '../core/task-visibility.mjs';
+import { presentListWindow } from '../core/list-window.mjs';
 const root=dirname(dirname(fileURLToPath(import.meta.url)));
 app.setName('Aster');app.setPath('userData',join(app.getPath('appData'),'Aster'));
-let pet,list,tray,monitor,quitting=false,dragOrigin,layoutHeight=PET_HEIGHT,position=null,positionTimer;
+let pet,list,tray,monitor,quitting=false,dragOrigin,layoutHeight=PET_HEIGHT,position=null,positionTimer,listFocusTimer;
 let settings={notifications:false,alwaysOnTop:true,reducedMotion:false,name:'Aster',petScale:100,completedTaskRetentionMinutes:-1};
 const positionPath=()=>join(app.getPath('userData'),'window-position.json');
 function savePosition(){clearTimeout(positionTimer);if(!pet||pet.isDestroyed())return;position=rememberPetPosition(pet.getBounds(),screen.getDisplayMatching(pet.getBounds()));try{mkdirSync(app.getPath('userData'),{recursive:true});writeFileSync(positionPath(),JSON.stringify(position));}catch{/* Keep the in-memory position when storage is unavailable. */}}
@@ -19,8 +24,9 @@ function keepPetVisible(){if(!pet||pet.isDestroyed())return;pet.setBounds(restor
 const settingsPath=()=>join(app.getPath('userData'),'settings.json');
 function clamp(n,min,max){return Math.max(min,Math.min(n,max));}
 function placeList(){const b=pet.getBounds(),a=screen.getDisplayMatching(b).workArea,w=Math.min(340,a.width),h=Math.min(420,a.height);list.setBounds({width:w,height:h,x:clamp(b.x+b.width-200-w+30,a.x,a.x+a.width-w),y:clamp(b.y+b.height-h,a.y,a.y+a.height-h)});}
-function showList(filter='all'){if(typeof filter!=='string')filter='all';placeList();list.webContents.send('tasks:filter',filter);list.show();list.focus();monitor?.acknowledge(filter);}
-function showSettings(){placeList();list.webContents.send('tasks:filter','settings');list.show();list.focus();}
+function presentList(){clearTimeout(listFocusTimer);listFocusTimer=presentListWindow(list);}
+function showList(filter='all'){if(typeof filter!=='string')filter='all';placeList();list.webContents.send('tasks:filter',filter);presentList();monitor?.acknowledge(filter);}
+function showSettings(){placeList();list.webContents.send('tasks:filter','settings');presentList();}
 function applyPetScale(){const bounds=pet.getBounds();pet.setBounds(scaledPetBounds(bounds,screen.getDisplayMatching(bounds).workArea,settings.petScale,layoutHeight));if(list?.isVisible())placeList();}
 function showPet(){pet.showInactive();}
 function makeWindow(extra){const win=new BrowserWindow({frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:false,resizable:false,show:false,skipTaskbar:true,webPreferences:{preload:join(root,'electron/preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true},...extra});win.setAlwaysOnTop(true,'floating');win.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true});win.on('page-title-updated',e=>e.preventDefault());win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('close',e=>{if(!quitting){e.preventDefault();win.hide();}});return win;}
@@ -48,6 +54,15 @@ if(!app.requestSingleInstanceLock())app.quit();else{
     ipcMain.handle('tasks:refresh',e=>{if(own(e))monitor.refresh();return true;});
     ipcMain.handle('tasks:open',async(e,id)=>{if(!own(e)||typeof id!=='string')return {ok:false,message:'任务不可用'};const task=monitor.snapshot.tasks.find(t=>t.id===id);if(!task)return {ok:false,message:'任务已不在列表中，请刷新'};
       if(task.provider==='codex'&&task.observation!=='process'&&/^[0-9a-f-]{36}$/i.test(task.nativeId||task.id)){try{await shell.openExternal(`codex://threads/${task.nativeId||task.id}`);return {ok:true,message:'已打开 Codex 对应任务'};}catch{return {ok:false,message:'Codex 任务打开失败'};}}
+      if(task.provider==='kiro'&&task.jumpTarget?.kind==='kiro-session'){
+        if(!isKiroSessionId(task.nativeId))return {ok:false,message:'Kiro 会话标识无效，请刷新任务'};
+        return openKiroWindowTask({id:task.nativeId,cwd:task.cwd});
+      }
+      if(task.provider==='cursor'&&task.jumpTarget?.kind==='cursor-session'){
+        if(!isCursorComposerId(task.nativeId))return {ok:false,message:'Cursor 任务定位信息无效，请刷新任务'};
+        if(!systemPreferences.isTrustedAccessibilityClient(true))return {ok:false,message:'请在系统设置中允许 Aster 使用辅助功能，然后再次点击。'};
+        return openExistingAppTask({title:task.title});
+      }
       return openTaskTarget(task);
     });
     ipcMain.handle('settings:get',()=>{settings={...settings,...readLoginStartup(app)};return settings;});

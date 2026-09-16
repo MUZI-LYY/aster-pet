@@ -1,0 +1,12 @@
+{
+  "name": "aster-kiro-bridge",
+  "displayName": "Aster Kiro Bridge",
+  "description": "Select an existing local Kiro session from Aster without opening an application or window.",
+  "publisher": "aster",
+  "version": "0.3.4",
+  "engines": { "vscode": "^1.94.0" },
+  "categories": ["Other"],
+  "extensionKind": ["ui"],
+  "activationEvents": ["*", "onStartupFinished"],
+  "main": "./extension.js"
+}

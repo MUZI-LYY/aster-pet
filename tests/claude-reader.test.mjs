@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync } from 'node:fs';
+import { mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync,utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readClaudeSnapshot,parseClaudeTranscript } from '../core/claude-reader.mjs';
+import { readClaudeSnapshot,parseClaudeTranscript,isClaudeTaskTranscript } from '../core/claude-reader.mjs';
 const now=Date.now();
 const user={type:'user',sessionId:'s',cwd:join(tmpdir(),'aster-fixture-project'),timestamp:new Date(now-2000).toISOString(),uuid:'u',message:{content:'修复登录问题'}};
 const tool={type:'assistant',sessionId:'s',timestamp:new Date(now-1000).toISOString(),message:{model:'test',stop_reason:'tool_use',content:[{type:'thinking',thinking:'PRIVATE'},{type:'tool_use',name:'Bash',input:{command:'SECRET_COMMAND'}},{type:'text',text:'Public progress'}]}};
@@ -84,5 +84,22 @@ test('Claude partially flushed last record does not expose a prior completion as
     const end={...tool,message:{stop_reason:'end_turn',content:[]}};
     writeFileSync(join(home,'projects','p','s.jsonl'),[user,end].map(JSON.stringify).join('\n')+'\n{"type":"user"');
     assert.equal(readClaudeSnapshot({home,now}).tasks[0].status,'unknown');
+  }finally{rmSync(home,{recursive:true,force:true});}
+});
+
+test('Claude SDK invocations are not tasks and cannot crowd out real CLI sessions',()=>{
+  const home=mkdtempSync(join(tmpdir(),'aster-claude-sdk-'));
+  try{
+    const dir=join(home,'projects','p');mkdirSync(dir,{recursive:true});
+    const real={...user,sessionId:'real',entrypoint:'cli'};
+    const sdk={...user,sessionId:'sdk',entrypoint:'sdk-cli'};
+    const realPath=join(dir,'real.jsonl'),sdkPath=join(dir,'sdk.jsonl');
+    writeFileSync(realPath,JSON.stringify(real));writeFileSync(sdkPath,JSON.stringify(sdk));
+    utimesSync(realPath,new Date(now-1000),new Date(now-1000));
+    utimesSync(sdkPath,new Date(now),new Date(now));
+    assert.equal(isClaudeTaskTranscript([real]),true);
+    assert.equal(isClaudeTaskTranscript([sdk]),false);
+    const snapshot=readClaudeSnapshot({home,now,limit:1});
+    assert.deepEqual(snapshot.tasks.map(task=>task.nativeId),['real']);
   }finally{rmSync(home,{recursive:true,force:true});}
 });

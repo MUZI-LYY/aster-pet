@@ -1,4 +1,6 @@
 export const completedTaskRetentionOptions = [
+  { value: 720, label: '12 小时后' },
+  { value: 1440, label: '24 小时后' },
   { value: 4320, label: '3 天后' },
   { value: 10080, label: '7 天后' },
   { value: 43200, label: '1 个月后' },
@@ -6,7 +8,7 @@ export const completedTaskRetentionOptions = [
 ];
 
 export function normalizeCompletedTaskRetention(value) {
-  if ([0, 5, 30, 60, 1440].includes(value)) return 4320;
+  if ([0, 5, 30, 60].includes(value)) return 4320;
   return completedTaskRetentionOptions.some(option => option.value === value) ? value : -1;
 }
 

@@ -144,6 +144,19 @@ nav button:hover {
 .task-row:hover {
   background: #eef4eb;
 }
+.task-row.no-jump {
+  cursor: default;
+}
+.task-row.no-jump:hover {
+  background: transparent;
+}
+.no-jump-note {
+  flex-shrink: 0;
+  color: #94a097;
+  font-size: 9px;
+  line-height: 17px;
+  white-space: nowrap;
+}
 .task-dot {
   width: 6px;
   height: 6px;

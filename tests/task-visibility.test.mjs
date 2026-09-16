@@ -60,15 +60,15 @@ test('old or invalid preferences preserve visibility; valid preferences survive 
     assert.equal(normalizeCompletedTaskRetention(value), -1);
     assert.equal(isTaskVisible(completed, value, now), true);
   }
-  for (const value of [-1, 4320, 10080, 43200]) {
+  for (const value of [-1, 720, 1440, 4320, 10080, 43200]) {
     assert.equal(normalizeCompletedTaskRetention(JSON.parse(JSON.stringify(value))), value);
   }
 });
 
 
-test('only day/month choices remain; removed preferences migrate to three days', () => {
-  assert.deepEqual(completedTaskRetentionOptions.map(option => option.value), [4320, 10080, 43200, -1]);
-  for (const previous of [0, 5, 30, 60, 1440]) {
+test('hour/day/month choices remain; removed minute preferences migrate to three days', () => {
+  assert.deepEqual(completedTaskRetentionOptions.map(option => option.value), [720, 1440, 4320, 10080, 43200, -1]);
+  for (const previous of [0, 5, 30, 60]) {
     assert.equal(normalizeCompletedTaskRetention(previous), 4320);
   }
   for (const days of [3, 7, 30]) {
@@ -76,4 +76,25 @@ test('only day/month choices remain; removed preferences migrate to three days',
     assert.equal(isTaskVisible(task, days * 1440, now - 1), true);
     assert.equal(isTaskVisible(task, days * 1440, now), false);
   }
+});
+
+test('12 and 24 hour windows expire inactive history at the boundary and retain live work', () => {
+  for (const hours of [12, 24]) {
+    const retention = hours * 60;
+    const timestamp = now - hours * 3_600_000;
+    for (const status of ['completed', 'failed', 'interrupted', 'idle', 'unknown', 'unconfirmed']) {
+      const task = status === 'completed'
+        ? { status, completedAt: timestamp, updatedAt: now }
+        : { status, completedAt: now, updatedAt: timestamp };
+      assert.equal(isTaskVisible(task, retention, now - 1), true);
+      assert.equal(isTaskVisible(task, retention, now), false);
+      assert.equal(isTaskVisible(task, -1, now), true);
+    }
+    for (const status of ['running', 'approval', 'input', 'waiting']) {
+      assert.equal(isTaskVisible({ status, updatedAt: timestamp - 1 }, retention, now), true);
+    }
+  }
+  const task = { status: 'completed', completedAt: now - 12 * 3_600_000 };
+  assert.equal(isTaskVisible(task, 720, now), false);
+  assert.equal(isTaskVisible(task, 1440, now), true);
 });

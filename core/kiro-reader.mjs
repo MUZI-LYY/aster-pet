@@ -3,6 +3,7 @@ import { join, basename, dirname, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolveStatus } from './task-state.mjs';
+import { isKiroSessionId } from './kiro-session.mjs';
 
 // Observed formats, not a stable public API:
 // github.com/getagentseal/codeburn/blob/68ce480ec1f4e00c93777a9ca248349a4e6d3eea/docs/providers/kiro.md
@@ -32,7 +33,7 @@ function read(path, max, budget, tail = false) {
       const newline = text.indexOf('\n');
       text = newline < 0 ? '' : text.slice(newline + 1);
     }
-    return { text, at: info.mtimeMs };
+    return { text, at: info.mtimeMs, truncated: start > 0, complete: count === size };
   } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
 }
 function json(path, max, budget) {
@@ -77,8 +78,17 @@ function sessionSource(meta, fallback) {
   return found.size === 1 ? [...found][0] : found.size > 1 ? 'local' : fallback;
 }
 function transcript(path, budget) {
-  const file = read(path, 192 * 1024, budget, true);
-  if (!file) return { turn: null, latestAt: 0, events: [], invalid: false };
+  let file = read(path, 192 * 1024, budget, true);
+  if (!file) return { turn: null, latestAt: 0, events: [], invalid: false, empty: false };
+  // Recover the user/terminal boundary when a long reply pushes it out of the
+  // usual tail. Keep both per-session and whole-snapshot reads bounded.
+  const hasBoundary = text => text.split('\n').some(line => {
+    try { return ['user', 'turn_end'].includes(JSON.parse(line)?.payload?.type); } catch { return false; }
+  });
+  if (file.truncated && !hasBoundary(file.text)) {
+    const recoveryBytes = Math.min(2 * 1024 * 1024, budget.bytes);
+    if (recoveryBytes > 192 * 1024) file = read(path, recoveryBytes, budget, true) || file;
+  }
   let turn = null, latestAt = 0, invalid = false;
   const events = [];
   for (const line of file.text.split('\n')) {
@@ -96,10 +106,11 @@ function transcript(path, budget) {
       turn = { status: 'inProgress', turn_id: short(p.executionId, 200) || id || null, started_at: at };
       events.length = 0;
       events.push({ label: '收到新消息', text: '', kind: 'tool', at: eventAt });
-    } else if (p.type === 'assistant' || p.type === 'tool_call') {
+    } else if ((p.type === 'assistant' || p.type === 'tool_call') && turn?.status === 'inProgress') {
+      // Kiro may append tool records while restoring or viewing an old session.
+      // They extend only a turn whose user event was observed in this bounded
+      // journal range; they never invent a new running turn by themselves.
       latestAt = Math.max(latestAt, eventAt);
-      // These are activity evidence even when the user event has left the tail.
-      if (!turn || turn.status !== 'inProgress') turn = { status: 'inProgress', turn_id: short(p.executionId, 200) || id || null };
       events.push({ label: p.type === 'tool_call' ? '调用工具' : '回复更新', text: '', kind: 'tool', at: eventAt });
     } else if (p.type === 'turn_end') {
       latestAt = Math.max(latestAt, eventAt);
@@ -113,8 +124,9 @@ function transcript(path, budget) {
   }
   // A partially written final record may be a newer user turn. Never expose
   // a previous completed state as the current state while that is ambiguous.
-  if (invalid) turn = null;
-  return { turn, latestAt: latestAt || file.at, events: events.reverse(), invalid };
+  if (invalid || !file.complete) turn = null;
+  return { turn, latestAt: latestAt || file.at, events: events.reverse(), invalid,
+    empty: file.complete && !file.truncated && !file.text.trim() };
 }
 
 export function readKiroSnapshot({ home = process.env.KIRO_HOME || join(homedir(), '.kiro'), userData = join(homedir(), 'Library/Application Support/Kiro/User'), now = Date.now(), limit = 80 } = {}) {
@@ -150,17 +162,22 @@ export function readKiroSnapshot({ home = process.env.KIRO_HOME || join(homedir(
     const state = candidate.journal ? transcript(candidate.journal, budget) : { turn: null, latestAt: 0, events: [] };
     const cwd = cwdFrom(meta);
     const source = candidate.format === 'v2' ? sessionSource(meta, candidate.source) : candidate.source;
-    const updatedAt = Math.max(time(meta.updatedAt) || time(meta.updated_at) || 0, state.latestAt, candidate.at);
+    const evidenceAt = Math.max(time(meta.updatedAt) || time(meta.updated_at) || 0, state.latestAt);
+    const updatedAt = evidenceAt || candidate.at;
+    const title = short(meta.title || meta.name).trim();
+    // Kiro persists blank tabs as untitled session records. They are UI shells,
+    // not tasks, until a user event creates a real turn.
+    if (candidate.format === 'v2' && /^(new session|新会话)$/i.test(title) && state.empty) continue;
     const task = {
       id: `kiro:${nativeId}`, nativeId, provider: 'kiro', source,
       sourceLabel: `Kiro · ${{ cli: 'CLI', ide: 'IDE', local: '本地' }[source]}`,
-      title: short(meta.title || meta.name) || 'Kiro 会话', project: cwd ? basename(cwd) : '无项目', cwd,
+      title: title || 'Kiro 会话', project: cwd ? basename(cwd) : '无项目', cwd,
       model: short(meta.modelId || meta.model, 100) || '默认模型',
       status: resolveStatus(state.turn, state.latestAt, now), turnId: state.turn?.turn_id || null,
       startedAt: state.turn?.started_at || null, completedAt: state.turn?.completed_at || null, updatedAt,
       evidence: state.turn ? 'Kiro 本地会话事件' : state.invalid ? '最新记录尚未写入完整' : '仅有会话记录，没有可确认的本轮状态',
       events: state.events,
-      jumpTarget: cwd ? { kind: 'project', app: 'Kiro', cwd } : null
+      jumpTarget: source !== 'cli' && isKiroSessionId(nativeId) ? { kind: 'kiro-session', label: '在原 Kiro 窗口定位' } : null
     };
     if (!tasks.has(task.id) || tasks.get(task.id).updatedAt < updatedAt) tasks.set(task.id, task);
   }

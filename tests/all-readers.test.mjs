@@ -17,3 +17,9 @@ test('CLI collection preserves software identity and adds it to the correct soft
   const codex=s.tasks.filter(t=>t.provider==='codex');assert.equal(codex.length,2);assert.equal(codex.find(t=>t.id==='cli:wrap2').observation,'process');
   assert.equal(s.sources.find(s=>s.provider==='codex').count,2);assert.equal(s.sources.find(s=>s.provider==='cursor').connected,true);assert.equal(s.sources.find(s=>s.provider==='cli').count,1);assert.equal(s.sources.find(s=>s.provider==='cli').sourceLabel,'其他 CLI');
 });
+test('native Codex tasks keep their app deep link while process observations do not invent one',()=>{
+  const id='12345678-1234-1234-1234-123456789abc';
+  const s=readAllSnapshot({readers:{codex:()=>({connected:true,tasks:[task(id)]}),cli:()=>({connected:true,tasks:[{...task(`cli:${id}`),provider:'codex',observation:'process'}]})}});
+  assert.deepEqual(s.tasks.find(t=>t.id===id).jumpTarget,{kind:'codex-thread',label:'打开 Codex 任务'});
+  assert.equal(s.tasks.find(t=>t.id===`cli:${id}`).jumpTarget,null);
+});

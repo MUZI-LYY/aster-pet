@@ -4,6 +4,7 @@ import { basename, join, isAbsolute, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolveStatus } from './task-state.mjs';
+import { isCursorComposerId } from './cursor-session.mjs';
 
 const MAX_JSON = 8 * 1024 * 1024;
 const TAIL_BYTES = 192 * 1024;
@@ -40,10 +41,13 @@ function database(file, root) {
 }
 // Unknown/numeric enums are intentionally not interpreted. A public reply alone is not completion.
 function state(status, generating = false) {
+  // A resumed Agents turn can publish current generation IDs before replacing
+  // the previous turn's terminal status. Current activity is stronger evidence.
+  if (generating) return { status: 'inProgress' };
   if (['completed', 'complete'].includes(status)) return { status: 'completed' };
   if (['failed', 'error'].includes(status)) return { status: 'failed' };
   if (['interrupted', 'aborted', 'cancelled', 'canceled'].includes(status)) return { status: 'interrupted' };
-  if (generating || ['generating', 'inProgress', 'running', 'waitingForApproval', 'waitingForInput'].includes(status)) return { status: 'inProgress' };
+  if (['generating', 'inProgress', 'running', 'waitingForApproval', 'waitingForInput'].includes(status)) return { status: 'inProgress' };
   return null;
 }
 function task(id, source, meta, now) {
@@ -56,7 +60,7 @@ function task(id, source, meta, now) {
     model: short(meta.model || '默认模型'), status: resolved === 'waiting' ? (meta.status === 'waitingForApproval' ? 'approval' : 'input') : resolved,
     turnId: meta.turnId || null, startedAt: meta.startedAt || null, completedAt: turn && ['completed', 'failed', 'interrupted'].includes(turn.status) ? updatedAt : null,
     updatedAt, evidence: turn ? 'Cursor 显式状态记录' : '没有可确认的本轮状态', events: meta.events || [],
-    ...(cwd ? { jumpTarget: { kind: 'project', app: 'Cursor', cwd } } : {}),
+    jumpTarget: source === 'ide' && isCursorComposerId(id) ? { kind: 'cursor-session', label: '在原 Cursor 窗口定位' } : null,
   };
 }
 // Only explicitly named public fields are selected. agentKv, thinking and tool results are never selected.
@@ -65,6 +69,8 @@ function metadataQuery(table, condition) {
   return `SELECT key, json_extract(j,'$.composerId') AS composerId, substr(json_extract(j,'$.name'),1,180) AS name,
     json_extract(j,'$.status') AS status, json_extract(j,'$.createdAt') AS createdAt,
     json_extract(j,'$.lastUpdatedAt') AS lastUpdatedAt, json_array_length(j,'$.generatingBubbleIds') AS generating,
+    substr(json_extract(j,'$.fullConversationHeadersOnly[#-1].bubbleId'),1,256) AS latestBubbleId,
+    json_extract(j,'$.fullConversationHeadersOnly[#-1].type') AS latestBubbleType,
     substr(json_extract(j,'$.modelConfig.modelName'),1,180) AS model FROM (SELECT key, ${safeJson} AS j FROM ${table} WHERE ${condition})`;
 }
 function workspaceIndex(userData, warnings) {
@@ -113,6 +119,17 @@ function publicEvents(db, id) {
   }
   return events;
 }
+function latestBubbleLifecycle(db, id, bubbleId, bubbleType) {
+  if (bubbleType !== 2 || !bubbleId) return null;
+  const row = db.prepare(`SELECT json_extract(j,'$.createdAt') AS createdAt,
+    json_extract(j,'$.startedAtMs') AS startedAtMs, json_extract(j,'$.completedAtMs') AS completedAtMs,
+    json_extract(j,'$.turnDurationMs') AS turnDurationMs, json_extract(j,'$.thinkingDurationMs') AS thinkingDurationMs
+    FROM (SELECT ${safeJson} AS j FROM cursorDiskKV WHERE key=?)`).get(`bubbleId:${id}:${bubbleId}`);
+  if (!row) return null;
+  const at = timestamp(row.startedAtMs ?? row.createdAt);
+  const terminal = row.completedAtMs != null || row.turnDurationMs != null || row.thinkingDurationMs != null;
+  return { at, open: Boolean(at) && !terminal };
+}
 function readIde(userData, now, limit, warnings) {
   const { index, found } = workspaceIndex(userData, warnings), tasks = []; let connected = found, db;
   try {
@@ -123,7 +140,15 @@ function readIde(userData, now, limit, warnings) {
       for (const row of rows) {
         const id = row.key.slice('composerData:'.length); if (!id || id.length > 256) continue;
         const workspace = index.get(id);
-        tasks.push(task(id, 'ide', { ...workspace, ...row, updatedAt: timestamp(row.lastUpdatedAt || workspace?.lastUpdatedAt || row.createdAt), startedAt: timestamp(row.createdAt), generating: row.generating > 0, events: publicEvents(db, id) }, now));
+        const events=publicEvents(db,id),lifecycle=latestBubbleLifecycle(db,id,row.latestBubbleId,row.latestBubbleType);
+        const persistedAt=timestamp(row.lastUpdatedAt || workspace?.lastUpdatedAt || row.createdAt) || 0;
+        // The parent catches up to the bubble timestamp when Cursor commits the turn.
+        const bubbleActive=Boolean(lifecycle?.open && lifecycle.at > persistedAt);
+        const explicitState=state(row.status,row.generating>0||bubbleActive);
+        if(!row.name&&!workspace?.name&&!workspace?.cwd&&!events.length&&!explicitState){index.delete(id);continue;}
+        tasks.push(task(id, 'ide', { ...workspace, ...row,
+          updatedAt: Math.max(persistedAt,lifecycle?.at || 0),
+          startedAt: timestamp(row.createdAt), generating: row.generating > 0 || bubbleActive, events }, now));
         index.delete(id);
       }
     }

@@ -10,13 +10,15 @@
 |---|---|---|---|
 | Codex | 原有 SQLite / JSONL 适配器 | 沿用原适配器 | 由桌面集成层提供 |
 | Claude Code | `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下 `projects/*/*.jsonl`、`sessions/*.json` | JSONL `end_turn` 明确完成；进程身份核验后的 `busy` / `waiting` 为运行/等待。`idle` 本身不证明完成 | 活会话有 TTY 时定位 Terminal/iTerm 原标签；明确 IDE 项目可打开 VS Code 项目 |
-| Cursor | `~/Library/Application Support/Cursor/User` 的 SQLite 与 `CURSOR_HOME` 或 `~/.cursor/projects/*/agent-transcripts` | 已知字符串状态或明确 stream-json 结束事件；未知数字枚举、普通文字回复不推断完成 | 已确认路径的 Cursor 项目 |
-| Kiro | `KIRO_HOME` 或 `~/.kiro/sessions`、Kiro `globalStorage/kiro.kiroagent` | 新版会话事件；`turn_end.stopReason=end_turn` 明确完成。旧记录仅发现会话，缺乏结束证据保留未知 | 已确认且存在的 Kiro 项目 |
+| Cursor | `~/Library/Application Support/Cursor/User` 的 SQLite 与 `CURSOR_HOME` 或 `~/.cursor/projects/*/agent-transcripts` | 已知字符串状态、当前生成标记、最新 bubble 与父记录的生命周期进度或明确 stream-json 结束事件；未被父记录吸收的续聊活动优先于上一轮残留状态；未知数字枚举、普通文字回复不推断完成 | 辅助功能在现有 Agents 窗口中选择唯一完整同名任务；CLI 记录不跳 GUI |
+| Kiro | `KIRO_HOME` 或 `~/.kiro/sessions`、Kiro `globalStorage/kiro.kiroagent` | 新版会话事件；`turn_end.stopReason=end_turn` 明确完成。旧记录仅发现会话，缺乏结束证据保留未知；仅完整读取且日志为空的 `New Session` 标签被过滤 | 可选本地桥接在完整工作区路径唯一匹配的现有窗口中按原生 ID 选择会话 |
 | 普通 CLI | Aster 包装启动后写入 `ASTER_TASK_HOME` 或 `~/.aster/tasks` | 活包装进程 + 心跳；实际退出码 0 完成，非零失败，信号中断；进程丢失保持待核实 | Terminal/iTerm 原标签 |
 
-Cursor/Kiro 本地格式为非稳定内部格式，当前以对应公开格式的 fixtures 验证。本次本机实际读取验证包含 Claude Code；没有 Cursor/Kiro 安装，因此尚未做这两个应用的实机联调。Kiro 旧版 SQLite CLI 存储和未知扩展格式未支持，可通过 CLI 包装监听该命令进程的生命周期。
+Cursor/Kiro 本地格式与任务入口都不是稳定公共接口，当前以对应 fixtures 和桌面实机行为验证，版本不兼容时明确报错。Cursor 的固定辅助功能脚本先确认目标进程已运行并将其置前，再在已有 `Cursor Agents` 窗口查询唯一完整同名按钮；它不会通过 Launch Services 启动软件。Kiro 的嵌套 WebView 不稳定暴露会话标签，因此可选桥接由每个现有 Kiro 窗口在回环地址发布短期发现记录，Aster 按当前快照中的合法原生 ID 和工作区选择唯一窗口，并用随机令牌请求固定的会话切换与查看命令。没有唯一现有窗口、桥接未加载或请求失败时直接失败，不回退到 URL、项目打开或软件启动。桥接不读取对话内容、不发送提示、不创建任务、不修改 Kiro 设置；Aster 未运行或移除后没有请求，Kiro 正常独立工作。Kiro 旧版 SQLite CLI 存储和未知扩展格式未支持，可通过 CLI 包装监听该命令进程的生命周期。
 
 Claude Code 优先显示会话标题，没有标题时使用真实用户问题，并显示最新问题；本地斜杠命令、命令输出、系统元数据和工具结果不会进入标题。派生的目录名称不会覆盖问题标题。活会话的进程启动时间同时核验本地时间和 UTC 记录，避免时区差异导致终端入口丢失；PID 已失效或被复用时仍不建立跳转入口。
+
+Kiro 通常读取日志末尾 192 KiB；若片段中缺少用户或结束事件，则在整轮 12 MiB 读取预算内补读最多 2 MiB 的尾部来查找轮次边界。仍找不到时保留为状态未知，不凭工具活动猜测运行，也不把截断、不可读或未写完整的日志判为空白标签。Cursor 标题必须与按钮完整名称相等，重复标题或额外装饰无法确认时不点击；Kiro 有工作区路径时只接受唯一完整路径匹配，不回退到目录名。
 
 ## 普通命令
 
@@ -59,7 +61,7 @@ const action = describeTaskJump(task); // {available,label,detail}
 const result = await openTaskTarget(task); // {ok,message}
 ```
 
-跳转只打开已验证的应用项目或定位原终端，不自动恢复、重复执行任务。macOS 首次控制终端可能要求系统自动化权限；失败会返回可展示的错误。没有精确入口时明确显示“打开项目”或“暂无跳转入口”。终端定位脚本不读取终端内容，也不输入命令。
+跳转只调用经过校验的原任务查看入口、打开已验证的应用项目或定位原终端，不自动恢复、重复执行任务。Cursor 定位需要 macOS 辅助功能权限；Kiro 精确定位需要可选桥接已在原窗口加载。缺少权限、桥接、应用、现有目标或唯一窗口时返回错误，不回退到 URL 或软件启动。终端定位脚本不读取终端内容，也不输入命令。
 
 任务的 `turnId` 可能为空（例如 Cursor IDE 缺少可验证轮次标识），此时不要发送基于“同一轮状态转换”的完成通知。
 

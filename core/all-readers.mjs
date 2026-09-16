@@ -17,10 +17,13 @@ export function readAllSnapshot({now=Date.now(),limit=320,readers=defaults,...op
     reports.set(readerProvider,result);
     for(const task of result.tasks||[]){
       const provider=readerProvider==='cli'&&Object.hasOwn(names,task.provider)?task.provider:readerProvider;
-      tasks.push({...task,provider,nativeId:task.nativeId||task.id,
+      const nativeId=task.nativeId||task.id;
+      const observation=task.observation||(readerProvider==='cli'?'process':'session');
+      const codexJump=provider==='codex'&&observation!=='process'&&/^[0-9a-f-]{36}$/i.test(nativeId)?{kind:'codex-thread',label:'打开 Codex 任务'}:null;
+      tasks.push({...task,provider,nativeId,
         id:readerProvider==='codex'?task.id:task.id.startsWith(`${readerProvider}:`)?task.id:`${readerProvider}:${task.id}`,
-        observation:task.observation||(readerProvider==='cli'?'process':'session'),
-        source:task.source||'local',sourceLabel:task.sourceLabel||(provider==='codex'?`Codex${task.source==='cli'?' · CLI':task.source==='vscode'?' · IDE':''}`:names[provider]),jumpTarget:task.jumpTarget||null});
+        observation,
+        source:task.source||'local',sourceLabel:task.sourceLabel||(provider==='codex'?`Codex${task.source==='cli'?' · CLI':task.source==='vscode'?' · IDE':''}`:names[provider]),jumpTarget:task.jumpTarget||codexJump});
     }
   }
   const providers=new Set([...reports.keys(),...tasks.map(t=>t.provider)]);
