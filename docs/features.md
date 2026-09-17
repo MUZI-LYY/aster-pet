@@ -5,7 +5,7 @@
 | 编号 | 功能 / 关键词 | 主要入口 | 边界 / 验证入口 |
 |---|---|---|---|
 | F01 | 来源聚合、软件/CLI 分类 | [all-readers](../core/all-readers.mjs)、[cli-provider](../core/cli-provider.mjs) | 来源独立失败；provider 是软件、source 是运行方式；[聚合测试](../tests/all-readers.test.mjs) |
-| F02 | Codex 历史与实时状态 | [reader](../core/codex-reader.mjs)、[live](../core/codex-live.mjs) | 本地格式和 IPC 非稳定协议；断线回退记录；[读取测试](../tests/reader.test.mjs)、[实时测试](../tests/codex-live.test.mjs) |
+| F02 | Codex 历史与实时状态 | [reader](../core/codex-reader.mjs)、[live](../core/codex-live.mjs) | 本地格式和 IPC 非稳定协议；断线回退记录；分页索引滞后时，用日志尾部中带时间和轮次 ID 的更新生命周期事件纠正状态，文件修改时间本身不能推翻终态；[读取测试](../tests/reader.test.mjs)、[实时测试](../tests/codex-live.test.mjs) |
 | F03 | Claude / Cursor / Kiro 监听 | [Claude](../core/claude-reader.mjs)、[Cursor](../core/cursor-reader.mjs)、[Kiro](../core/kiro-reader.mjs) | 只支持已知格式；Cursor 当前生成标记或尚未被父记录吸收的最新 bubble 生命周期优先于上一轮残留的结束状态；Claude SDK 的 `sdk-cli` 单次调用和已完整读取且日志为空的 Kiro `New Session` 标签从任务列表排除；Kiro 恢复/查看会话追加的孤立工具记录不能启动新一轮；Cursor/Kiro 定位入口只对 ID 合法的本地任务开放；实机范围见 [专题说明](multi-provider-monitoring.md)；对应 reader 测试 |
 | F04 | CLI 包装、心跳、退出码 | [包装入口](../scripts/aster-run.mjs)、[读取](../core/cli-reader.mjs) | 用户主动运行；观察进程而非对话轮次；[CLI 测试](../tests/cli-reader.test.mjs) |
 | F05 | 状态、数量、提醒、已读 | [task-state](../core/task-state.mjs)、[monitor](../core/monitor.mjs) | 本轮完成不是项目完成；已读不修改来源；[提醒测试](../tests/status-alerts.test.mjs) |

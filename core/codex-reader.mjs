@@ -25,34 +25,46 @@ function activity(item) {
   if (item.type === 'agentMessage') return { label: item.phase === 'final_answer' ? '本轮回复' : '进度更新', text: short(item.text, 900), kind: 'message' };
   return { label: titles[item.type] ?? '任务活动', text: short(item.tool ?? (item.type === 'commandExecution' ? item.command : '') ?? '', 180), kind: 'tool' };
 }
-// Legacy logs are read from their tail only. A missing start/end marker stays unknown.
+// Read a bounded rollout tail, including when a paginated index lags behind it.
+// Only timestamped lifecycle markers can supersede an indexed turn.
 export function legacyTail(path, home) {
-  if (!path || !existsSync(path)) return null;
-  const real = realpathSync(path);
-  if (!real.startsWith(realpathSync(home) + sep)) return null;
-  const fd = openSync(real, 'r');
+  let fd;
   try {
+    if (!path || !existsSync(path)) return null;
+    const real = realpathSync(path);
+    if (!real.startsWith(realpathSync(home) + sep)) return null;
+    fd = openSync(real, 'r');
     const stat = fstatSync(fd), size = Math.min(stat.size, 192 * 1024);
+    if (!stat.isFile()) return null;
     const buf = Buffer.alloc(size); readSync(fd, buf, 0, size, stat.size - size);
     const lines = buf.toString('utf8').split('\n'); if (stat.size > size) lines.shift();
     let turn = null; let latestAt = stat.mtimeMs; const events = []; let subtitle = ''; let tokenUsage = null;
+    let lifecycleAt = 0, invalid = false;
     for (const line of lines) {
-      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (!line.trim()) continue;
+      let e; try { e = JSON.parse(line); invalid = false; } catch { invalid = true; continue; }
       const p = e.payload ?? {}; const at = Date.parse(e.timestamp) || latestAt;
       if (e.type === 'event_msg') {
         if (p.type === 'token_count') tokenUsage = codexTokens(p.info) || tokenUsage;
-        if (['task_started','turn_started'].includes(p.type)) { turn = { status: 'inProgress', turn_id: p.turn_id, started_at: at }; subtitle = ''; }
+        if (['task_started','turn_started'].includes(p.type)) {
+          turn = { status: 'inProgress', turn_id: p.turn_id, started_at: at };
+          lifecycleAt = Date.parse(e.timestamp) || 0; subtitle = ''; events.length = 0;
+        }
         if (p.type === 'user_message') subtitle = userRequest(p.message);
-        if (['task_complete','task_completed','turn_completed'].includes(p.type)) turn = { ...turn, status: 'completed', turn_id: p.turn_id ?? turn?.turn_id, completed_at: at };
-        if (['turn_aborted','task_aborted'].includes(p.type)) turn = { ...turn, status: 'interrupted', completed_at: at };
+        if (['task_complete','task_completed','turn_completed','turn_aborted','task_aborted'].includes(p.type)) {
+          const differentTurn = p.turn_id && turn?.turn_id && p.turn_id !== turn.turn_id;
+          if (differentTurn) { subtitle = ''; events.length = 0; }
+          turn = { ...(differentTurn ? {} : turn), status: ['turn_aborted','task_aborted'].includes(p.type) ? 'interrupted' : 'completed', turn_id: p.turn_id ?? turn?.turn_id, completed_at: at };
+          lifecycleAt = Date.parse(e.timestamp) || 0;
+        }
         if (p.type === 'agent_message' && p.message) events.push({ label: '进度更新', text: short(p.message,900), kind:'message', at });
       }
       if (e.type === 'response_item' && p.type === 'message' && p.role === 'user') {
         const request = userRequest(p.content); if (request) subtitle = request;
       }
     }
-    return { turn, latestAt, subtitle, tokenUsage, events: events.slice(-5).reverse() };
-  } finally { closeSync(fd); }
+    return { turn, latestAt, lifecycleAt, invalid, subtitle, tokenUsage, events: events.slice(-5).reverse() };
+  } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
 }
 export function readCodexSnapshot({ home = process.env.CODEX_HOME || join(homedir(), '.codex'), now = Date.now(), limit = 160 } = {}) {
   const base = { tasks: [], checkedAt: now, source: 'codex-local', sourceLabel: '本机 Codex · 只读', limit, capabilities: ['tasks.list','tasks.observe'] };
@@ -73,17 +85,27 @@ export function readCodexSnapshot({ home = process.env.CODEX_HOME || join(homedi
     const latestTime = history?.prepare('SELECT MAX(created_at_ms) AS at FROM thread_items WHERE thread_id=? AND turn_id=?');
     const tasks = rows.map(row => {
       let turn = latestTurn?.get(row.id), latestAt = ms(row.updated_at), events = [], waiting = false, subtitle = '', tokenUsage = cumulativeTokens(row.tokens_used);
+      let indexedAt = 0, rolloutSelected = false;
       if (turn) {
-        latestAt = Math.max(latestAt, latestTime.get(row.id,turn.turn_id)?.at || 0, ms(turn.started_at)||0, ms(turn.completed_at)||0);
+        indexedAt = Math.max(latestTime.get(row.id,turn.turn_id)?.at || 0, ms(turn.started_at)||0, ms(turn.completed_at)||0);
+        latestAt = Math.max(latestAt, indexedAt);
         const items = latestItems.all(row.id,turn.turn_id);
         const content = latestUser.get(row.id,turn.turn_id)?.content;
         if (content) { try { subtitle = userRequest(JSON.parse(content)); } catch { subtitle = userRequest(content); } }
         waiting = items.some(i => i.status === 'waitingForApproval') ? 'approval' : items.some(i => i.status === 'waitingForInput') ? 'input' : false;
         events = items.filter(i=>i.item_type !== 'userMessage').map(i => ({ ...activity({ type:i.item_type, phase:i.phase, text:i.text, tool:i.tool }), at:i.created_at_ms, id:i.item_id }));
-      } else if (row.history_mode !== 'paginated') {
-        const legacy = legacyTail(row.rollout_path,home); if (legacy) { turn=legacy.turn;latestAt=Math.max(latestAt,legacy.latestAt);events=legacy.events;subtitle=legacy.subtitle;tokenUsage=tokenUsage||legacy.tokenUsage; }
       }
-      return { id:row.id, provider:'codex',nativeId:row.id,source:row.source,sourceLabel:row.source==='cli'?'Codex CLI':'Codex', title:short(row.name || row.title || '未命名任务',180), subtitle, tokenUsage, project: row.cwd ? basename(row.cwd) : '无项目', cwd: row.cwd || '', model:row.model || '默认模型', status:resolveStatus(turn,latestAt,now,waiting), turnId:turn?.turn_id || null, startedAt:ms(turn?.started_at), completedAt:ms(turn?.completed_at), updatedAt:latestAt, evidence:turn ? '最近一轮任务记录' : '没有可确认的本轮状态', events };
+      const rollout = legacyTail(row.rollout_path,home);
+      const newerLifecycle = rollout?.turn?.turn_id && !rollout.invalid && rollout.lifecycleAt > indexedAt
+        && (rollout.turn.turn_id !== turn?.turn_id || rollout.turn.status !== turn?.status);
+      if (rollout && (newerLifecycle || (!turn && row.history_mode !== 'paginated'))) {
+        // Index mtime is not turn evidence. Replace all turn-scoped fields so
+        // an old error, pending request or subtitle cannot leak into a retry.
+        turn = rollout.turn; waiting = false; rolloutSelected = true;
+        latestAt = Math.max(latestAt, rollout.latestAt, rollout.lifecycleAt);
+        events = rollout.events; subtitle = rollout.subtitle; tokenUsage = tokenUsage || rollout.tokenUsage;
+      }
+      return { id:row.id, provider:'codex',nativeId:row.id,source:row.source,sourceLabel:row.source==='cli'?'Codex CLI':'Codex', title:short(row.name || row.title || '未命名任务',180), subtitle, tokenUsage, project: row.cwd ? basename(row.cwd) : '无项目', cwd: row.cwd || '', model:row.model || '默认模型', status:resolveStatus(turn,latestAt,now,waiting), turnId:turn?.turn_id || null, startedAt:ms(turn?.started_at), completedAt:ms(turn?.completed_at), updatedAt:latestAt, evidence:turn ? (rolloutSelected ? '会话日志中的最新轮次事件' : '最近一轮任务记录') : '没有可确认的本轮状态', events };
     });
     return { ...base, connected:true, tasks, error:null };
   } catch(e) {
